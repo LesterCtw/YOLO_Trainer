@@ -20,11 +20,14 @@ workflow for the YOLO Trainer MVS.
   `reviewed_empty`.
 - Reviewed images can be exported as an Ultralytics-compatible train/val
   dataset.
+- The GUI can launch the first YOLO fine-tuning workflow from an exported
+  dataset, stream logs, show completion/failure status, and cancel a run.
+- Training run status is retained in the YOLO Training Project folder.
 - Project metadata is persisted in each project folder.
 - Smoke, documentation, project-store, image-import, annotation-store,
-  dataset-export, and GUI workflow tests are present.
+  dataset-export, training, and GUI workflow tests are present.
 
-The app does not yet support YOLO training or prediction preview.
+The app does not yet support prediction preview or polished training summaries.
 
 ## MVS direction
 
@@ -68,6 +71,11 @@ The current GUI supports the first project workflow:
 - Show each image's review state and project-level reviewed/unreviewed progress.
 - Mark an image as `reviewed_empty` when it intentionally has no target boxes.
 - Export reviewed project images into an Ultralytics-compatible dataset.
+- Choose essential fine-tuning settings and start YOLO training from the
+  exported dataset.
+- Watch streamed training logs while the GUI remains responsive.
+- Cancel a running training process and keep the canceled run in project
+  history.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -118,6 +126,25 @@ skipped and counted in the GUI export result. Reviewed empty images are exported
 as negative examples with empty label files. The first export path uses a fixed
 seed and deterministic 80/20 image-level train/val split.
 
+## YOLO fine-tuning workflow
+
+Training starts from the most recently exported dataset for the active YOLO
+Training Project. The first GUI training controls expose:
+
+- pretrained model path, default `YOLO11m.pt`
+- epochs, default `100`
+- image size, default `1024`
+- batch, default `auto`
+- device, default `0`
+- output name, default `yolo-trainer-run`
+
+The GUI launches training in a background process so the window can keep
+responding while logs stream into the training log view. Completed, failed, and
+canceled run status is written under the project `training/` folder.
+
+This workflow focuses on process orchestration and training controls. Prediction
+preview, polished run summaries, and metrics dashboards are later slices.
+
 ## Windows training workstation
 
 The expected training workstation is Windows 11 with Python 3.12.8, NVIDIA CUDA
@@ -127,6 +154,11 @@ PyTorch CUDA wheels are intentionally not pinned in this app scaffold. Install
 the PyTorch build that matches the workstation driver and CUDA runtime manually,
 then install the project dependencies. This avoids locking the repository to one
 CUDA wheel that may not match the machine.
+
+The training process imports `ultralytics` inside the active Python environment.
+Install Ultralytics in the Windows training environment after the matching
+PyTorch CUDA wheel is installed. If Ultralytics is missing, the GUI reports the
+training failure instead of changing project data.
 
 Full GPU YOLO training is a manual validation path for the Windows workstation.
 Automated tests should not require GPU training.
