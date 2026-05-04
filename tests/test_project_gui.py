@@ -6,8 +6,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 import tifffile
 
+from yolo_trainer.annotations import AnnotationStore, PixelBox, ReviewStateStore
 from yolo_trainer.app import MainWindow
-from yolo_trainer.project import create_project
+from yolo_trainer.project import create_project, open_project
 
 
 def _app() -> QApplication:
@@ -197,6 +198,36 @@ def test_gui_shows_review_state_progress_and_reviewed_empty_workflow(tmp_path) -
     assert (
         reopened.review_progress_text()
         == "Review progress: 1/1 reviewed, 0 unreviewed"
+    )
+
+
+def test_gui_exports_dataset_and_shows_export_counts(tmp_path) -> None:
+    _app()
+    first = tmp_path / "first.tif"
+    second = tmp_path / "second.tif"
+    third = tmp_path / "third.tif"
+    tifffile.imwrite(first, np.arange(16, dtype=np.uint16).reshape(4, 4))
+    tifffile.imwrite(second, np.arange(16, 32, dtype=np.uint16).reshape(4, 4))
+    tifffile.imwrite(third, np.arange(32, 48, dtype=np.uint16).reshape(4, 4))
+    window = MainWindow()
+    project_path = tmp_path / "project"
+    window.create_project_at(project_path, name="Dataset Project")
+    window.import_images([first, second, third])
+    project = open_project(project_path)
+    labeled_image, reviewed_empty_image, _unreviewed_image = project.imported_images
+    AnnotationStore(project).add_box(
+        labeled_image,
+        class_name="xsection_metal",
+        pixel_box=PixelBox(x_min=0, y_min=0, x_max=2, y_max=2),
+    )
+    ReviewStateStore(project).mark_reviewed_empty(reviewed_empty_image)
+    window.open_project_at(project_path)
+
+    window.export_dataset_to(tmp_path / "export")
+
+    assert (
+        window.dataset_export_status_text()
+        == "Dataset export: 2 images exported (1 train, 1 val), 1 unreviewed skipped."
     )
 
 

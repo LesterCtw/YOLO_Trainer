@@ -18,12 +18,13 @@ workflow for the YOLO Trainer MVS.
   Boxes.
 - Imported images track explicit review state: `unreviewed`, `labeled`, or
   `reviewed_empty`.
+- Reviewed images can be exported as an Ultralytics-compatible train/val
+  dataset.
 - Project metadata is persisted in each project folder.
-- Smoke, documentation, project-store, image-import, annotation-store, and GUI
-  workflow tests are present.
+- Smoke, documentation, project-store, image-import, annotation-store,
+  dataset-export, and GUI workflow tests are present.
 
-The app does not yet support dataset export, YOLO training, or prediction
-preview.
+The app does not yet support YOLO training or prediction preview.
 
 ## MVS direction
 
@@ -66,6 +67,7 @@ The current GUI supports the first project workflow:
 - Autosave annotation labels and restore them after reopening the project.
 - Show each image's review state and project-level reviewed/unreviewed progress.
 - Mark an image as `reviewed_empty` when it intentionally has no target boxes.
+- Export reviewed project images into an Ultralytics-compatible dataset.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -101,6 +103,20 @@ Adding one or more Metal Detection Boxes marks the image as `labeled`. Removing
 all boxes returns the image to `unreviewed` instead of silently treating it as a
 negative training example. The user must explicitly mark an image as
 `reviewed_empty` when it contains no target objects.
+
+Dataset export writes an Ultralytics-compatible structure to the selected export
+folder:
+
+- `images/train/`
+- `images/val/`
+- `labels/train/`
+- `labels/val/`
+- `dataset.yaml`
+
+Only `labeled` and `reviewed_empty` images are exported. `unreviewed` images are
+skipped and counted in the GUI export result. Reviewed empty images are exported
+as negative examples with empty label files. The first export path uses a fixed
+seed and deterministic 80/20 image-level train/val split.
 
 ## Windows training workstation
 

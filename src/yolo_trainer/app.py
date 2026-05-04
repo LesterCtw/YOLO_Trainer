@@ -26,6 +26,7 @@ from yolo_trainer.annotations import (
     PixelBox,
     ReviewStateStore,
 )
+from yolo_trainer.dataset_export import DatasetExportResult, export_dataset
 from yolo_trainer.image_import import ImportResult, import_stem_zc_images
 from yolo_trainer.project import (
     ImportedImage,
@@ -110,6 +111,9 @@ class MainWindow(QMainWindow):
         )
         self._review_progress_label.setObjectName("reviewProgressLabel")
 
+        self._dataset_export_status_label = QLabel("Dataset export: not exported.")
+        self._dataset_export_status_label.setObjectName("datasetExportStatusLabel")
+
         create_button = QPushButton("Create Project")
         create_button.setObjectName("createProjectButton")
         create_button.clicked.connect(self._choose_project_to_create)
@@ -126,6 +130,10 @@ class MainWindow(QMainWindow):
         reviewed_empty_button.setObjectName("markReviewedEmptyButton")
         reviewed_empty_button.clicked.connect(self.mark_selected_image_reviewed_empty)
 
+        export_dataset_button = QPushButton("Export Dataset")
+        export_dataset_button.setObjectName("exportDatasetButton")
+        export_dataset_button.clicked.connect(self._choose_dataset_export_directory)
+
         layout = QVBoxLayout()
         layout.addWidget(create_button)
         layout.addWidget(open_button)
@@ -139,6 +147,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._review_state_label)
         layout.addWidget(self._review_progress_label)
         layout.addWidget(reviewed_empty_button)
+        layout.addWidget(export_dataset_button)
+        layout.addWidget(self._dataset_export_status_label)
         layout.addStretch()
 
         root = QWidget()
@@ -232,6 +242,15 @@ class MainWindow(QMainWindow):
         )
         self._refresh_annotation_status()
 
+    def export_dataset_to(self, path: Path | str) -> None:
+        if self._current_project is None:
+            self._show_project_error("Open a YOLO Training Project before exporting.")
+            return
+        result = export_dataset(self._current_project, path)
+        self._dataset_export_status_label.setText(
+            _format_dataset_export_result(result)
+        )
+
     def open_project_at(self, path: Path | str) -> None:
         try:
             self._show_project(open_project(path))
@@ -265,8 +284,19 @@ class MainWindow(QMainWindow):
     def review_progress_text(self) -> str:
         return self._review_progress_label.text()
 
+    def dataset_export_status_text(self) -> str:
+        return self._dataset_export_status_label.text()
+
     def annotation_canvas(self) -> AnnotationImageLabel:
         return self._annotation_image_label
+
+    def _choose_dataset_export_directory(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Export Ultralytics Dataset",
+        )
+        if path:
+            self.export_dataset_to(path)
 
     def _choose_project_to_create(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -398,6 +428,15 @@ def _format_annotation_status(count: int) -> str:
     if count == 1:
         return "1 box saved."
     return f"{count} boxes saved."
+
+
+def _format_dataset_export_result(result: DatasetExportResult) -> str:
+    return (
+        "Dataset export: "
+        f"{result.included_count} images exported "
+        f"({result.train_count} train, {result.val_count} val), "
+        f"{result.skipped_unreviewed_count} unreviewed skipped."
+    )
 
 
 def run(argv: list[str] | None = None) -> int:
