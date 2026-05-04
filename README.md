@@ -14,12 +14,14 @@ workflow for the YOLO Trainer MVS.
 - Python project metadata is managed by `uv`.
 - A PySide6 desktop app can create and open YOLO Training Projects.
 - Active projects can import supported STEM ZC Images into the project queue.
+- Imported Normalized Training Images can be annotated with Metal Detection
+  Boxes.
 - Project metadata is persisted in each project folder.
-- Smoke, documentation, project-store, image-import, and GUI workflow tests are
-  present.
+- Smoke, documentation, project-store, image-import, annotation-store, and GUI
+  workflow tests are present.
 
-The app does not yet support annotation, dataset export, YOLO training, or
-prediction preview.
+The app does not yet support dataset export, YOLO training, or prediction
+preview.
 
 ## MVS direction
 
@@ -57,6 +59,9 @@ The current GUI supports the first project workflow:
 - Save and load project metadata across app restarts.
 - Import supported STEM ZC Images into the active project.
 - Show project status and the imported image queue after create/open/import.
+- Select an imported image for annotation.
+- Draw Metal Detection Boxes by dragging on the Normalized Training Image.
+- Autosave annotation labels and restore them after reopening the project.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -73,6 +78,19 @@ Imported images are stored under the project `images/` directory:
 TIFF import is supported directly. DM3 import is represented by the same public
 import workflow with an injectable reader so tests can use a controlled fixture;
 hardening a full production DM3 parser is a later step.
+
+Annotation labels are stored under `labels/` as YOLO-compatible `.txt` files.
+The canonical class IDs are stable:
+
+| ID  | Class name        |
+| --- | ----------------- |
+| 0   | `xsection_metal`  |
+| 1   | `alongline_metal` |
+| 2   | `xsection_via`    |
+| 3   | `alongline_via`   |
+
+The GUI may show readable labels, but saved label data should keep these
+canonical names and IDs stable for future dataset export.
 
 ## Windows training workstation
 

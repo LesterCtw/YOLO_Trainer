@@ -7,9 +7,11 @@ from typing import Callable
 
 import numpy as np
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -18,8 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from yolo_trainer.annotations import CANONICAL_CLASSES, AnnotationStore, PixelBox
 from yolo_trainer.image_import import ImportResult, import_stem_zc_images
 from yolo_trainer.project import (
+    ImportedImage,
     InvalidProjectError,
     YOLOTrainingProject,
     create_project,
@@ -31,6 +35,31 @@ APP_NAME = "YOLO Trainer"
 MINIMUM_WINDOW_SIZE = QSize(960, 640)
 
 
+class AnnotationImageLabel(QLabel):
+    box_drawn = Signal(int, int, int, int)
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self._drag_start: QPoint | None = None
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            drag_end = event.position().toPoint()
+            x_min = min(self._drag_start.x(), drag_end.x())
+            y_min = min(self._drag_start.y(), drag_end.y())
+            x_max = max(self._drag_start.x(), drag_end.x())
+            y_max = max(self._drag_start.y(), drag_end.y())
+            self._drag_start = None
+            if x_max > x_min and y_max > y_min:
+                self.box_drawn.emit(x_min, y_min, x_max, y_max)
+        super().mouseReleaseEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -39,6 +68,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self._current_project: YOLOTrainingProject | None = None
+        self._selected_image: ImportedImage | None = None
+        self._annotation_image_text = "No image selected for annotation."
         self._dm3_reader = dm3_reader
 
         self.setWindowTitle(APP_NAME)
@@ -52,6 +83,19 @@ class MainWindow(QMainWindow):
 
         self._error_label = QLabel("")
         self._error_label.setObjectName("projectErrorLabel")
+
+        self._class_selector = QComboBox()
+        self._class_selector.setObjectName("annotationClassSelector")
+        self._class_selector.addItems(CANONICAL_CLASSES)
+
+        self._annotation_image_label = AnnotationImageLabel(
+            "No image selected for annotation."
+        )
+        self._annotation_image_label.setObjectName("annotationImageLabel")
+        self._annotation_image_label.box_drawn.connect(self._draw_selected_class_box)
+
+        self._annotation_status_label = QLabel("No boxes saved.")
+        self._annotation_status_label.setObjectName("annotationStatusLabel")
 
         create_button = QPushButton("Create Project")
         create_button.setObjectName("createProjectButton")
@@ -72,6 +116,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._status_label)
         layout.addWidget(self._queue_label)
         layout.addWidget(self._error_label)
+        layout.addWidget(self._class_selector)
+        layout.addWidget(self._annotation_image_label)
+        layout.addWidget(self._annotation_status_label)
         layout.addStretch()
 
         root = QWidget()
@@ -87,7 +134,9 @@ class MainWindow(QMainWindow):
 
     def import_images(self, paths: list[Path] | tuple[Path, ...]) -> ImportResult | None:
         if self._current_project is None:
-            self._show_project_error("Open a YOLO Training Project before importing images.")
+            self._show_project_error(
+                "Open a YOLO Training Project before importing images."
+            )
             return None
 
         result = import_stem_zc_images(
@@ -99,6 +148,60 @@ class MainWindow(QMainWindow):
         if result.failed:
             self._error_label.setText(_format_import_failures(result))
         return result
+
+    def select_image(self, image_id: str) -> None:
+        if self._current_project is None:
+            self._show_project_error(
+                "Open a YOLO Training Project before selecting images."
+            )
+            return
+
+        for imported_image in self._current_project.imported_images:
+            if imported_image.image_id == image_id:
+                self._show_annotation_image(imported_image)
+                return
+
+        self._show_project_error(f"Imported image not found: {image_id}")
+
+    def selected_image_id(self) -> str | None:
+        if self._selected_image is None:
+            return None
+        return self._selected_image.image_id
+
+    def draw_annotation_box(
+        self,
+        *,
+        class_name: str,
+        x_min: int,
+        y_min: int,
+        x_max: int,
+        y_max: int,
+    ) -> None:
+        if self._current_project is None or self._selected_image is None:
+            self._show_project_error("Select an imported image before drawing boxes.")
+            return
+
+        AnnotationStore(self._current_project).add_box(
+            self._selected_image,
+            class_name=class_name,
+            pixel_box=PixelBox(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max),
+        )
+        self._refresh_annotation_status()
+
+    def undo_last_annotation(self) -> None:
+        if self._current_project is None or self._selected_image is None:
+            return
+        AnnotationStore(self._current_project).undo_last(self._selected_image)
+        self._refresh_annotation_status()
+
+    def delete_annotation(self, *, index: int) -> None:
+        if self._current_project is None or self._selected_image is None:
+            return
+        AnnotationStore(self._current_project).delete_box(
+            self._selected_image,
+            index=index,
+        )
+        self._refresh_annotation_status()
 
     def open_project_at(self, path: Path | str) -> None:
         try:
@@ -120,6 +223,15 @@ class MainWindow(QMainWindow):
 
     def project_error_text(self) -> str:
         return self._error_label.text()
+
+    def annotation_image_text(self) -> str:
+        return self._annotation_image_text
+
+    def annotation_status_text(self) -> str:
+        return self._annotation_status_label.text()
+
+    def annotation_canvas(self) -> AnnotationImageLabel:
+        return self._annotation_image_label
 
     def _choose_project_to_create(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -151,11 +263,50 @@ class MainWindow(QMainWindow):
         self._status_label.setText(f"Project loaded: {project.name}")
         self._queue_label.setText(_format_image_queue(project))
         self._error_label.setText("")
+        if project.imported_images:
+            self._show_annotation_image(project.imported_images[0])
+        else:
+            self._selected_image = None
+            self._annotation_image_text = "No image selected for annotation."
+            self._annotation_image_label.setText(self._annotation_image_text)
+            self._annotation_image_label.setPixmap(QPixmap())
+            self._annotation_status_label.setText("No boxes saved.")
 
     def _show_project_error(self, message: str) -> None:
         self._status_label.setText("No YOLO Training Project loaded.")
         self._queue_label.setText("Create or open a project to start.")
         self._error_label.setText(message)
+
+    def _show_annotation_image(self, imported_image: ImportedImage) -> None:
+        self._selected_image = imported_image
+        self._annotation_image_text = f"Annotating {imported_image.display_name}"
+        self._annotation_image_label.setText(self._annotation_image_text)
+        self._annotation_image_label.setPixmap(
+            QPixmap(str(imported_image.normalized_image_path))
+        )
+        self._refresh_annotation_status()
+
+    def _draw_selected_class_box(
+        self,
+        x_min: int,
+        y_min: int,
+        x_max: int,
+        y_max: int,
+    ) -> None:
+        self.draw_annotation_box(
+            class_name=self._class_selector.currentText(),
+            x_min=x_min,
+            y_min=y_min,
+            x_max=x_max,
+            y_max=y_max,
+        )
+
+    def _refresh_annotation_status(self) -> None:
+        if self._current_project is None or self._selected_image is None:
+            self._annotation_status_label.setText("No boxes saved.")
+            return
+        annotations = AnnotationStore(self._current_project).load(self._selected_image)
+        self._annotation_status_label.setText(_format_annotation_status(len(annotations)))
 
 
 def build_main_window() -> MainWindow:
@@ -176,6 +327,14 @@ def _format_import_failures(result: ImportResult) -> str:
     return "; ".join(
         f"{failure.source_path.name}: {failure.message}" for failure in result.failed
     )
+
+
+def _format_annotation_status(count: int) -> str:
+    if count == 0:
+        return "No boxes saved."
+    if count == 1:
+        return "1 box saved."
+    return f"{count} boxes saved."
 
 
 def run(argv: list[str] | None = None) -> int:
