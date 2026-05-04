@@ -2,7 +2,8 @@
 
 ## Current status
 
-This repo has the initial project scaffold for the YOLO Trainer MVS.
+This repo has the initial project scaffold and the first YOLO Training Project
+workflow for the YOLO Trainer MVS.
 
 - GitHub repository: <https://github.com/LesterCtw/YOLO_Trainer>
 - Agent configuration lives in `AGENTS.md`.
@@ -11,8 +12,9 @@ This repo has the initial project scaffold for the YOLO Trainer MVS.
 - Triage labels use the default vocabulary.
 - Domain documentation is configured as single-context.
 - Python project metadata is managed by `uv`.
-- A minimal PySide6 desktop app shell is available.
-- Smoke/documentation tests are present.
+- A PySide6 desktop app can create and open empty YOLO Training Projects.
+- Project metadata is persisted in each project folder.
+- Smoke, documentation, project-store, and GUI project workflow tests are present.
 
 The app does not yet support image import, annotation, dataset export, YOLO
 training, or prediction preview.
@@ -43,6 +45,19 @@ uv run yolo-trainer
 `uv run yolo-trainer --smoke` starts the PySide6 app, processes one GUI event
 cycle, prints a smoke-test message, and exits. This is useful for automated
 checks where opening the full GUI is not needed.
+
+## YOLO Training Project workflow
+
+The current GUI supports the first empty-project workflow:
+
+- Create a YOLO Training Project folder.
+- Open an existing YOLO Training Project folder.
+- Save and load project metadata across app restarts.
+- Show project status and an empty image queue after create/open.
+- Reject unsupported folders with a clear message in the project view.
+
+Each project folder stores a `yolo-trainer-project.json` metadata file. This is
+the current marker used to recognize a valid YOLO Training Project.
 
 ## Windows training workstation
 
