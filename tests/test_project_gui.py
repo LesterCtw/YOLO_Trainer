@@ -143,6 +143,63 @@ def test_gui_annotation_smoke_autosaves_and_restores_boxes(tmp_path) -> None:
     assert reopened.annotation_status_text() == "No boxes saved."
 
 
+def test_gui_shows_review_state_progress_and_reviewed_empty_workflow(tmp_path) -> None:
+    _app()
+    source = tmp_path / "source.tif"
+    tifffile.imwrite(source, np.arange(16, dtype=np.uint16).reshape(4, 4))
+    window = MainWindow()
+    window.create_project_at(tmp_path / "project", name="Review Project")
+    window.import_images([source])
+
+    image_id = window.selected_image_id()
+    assert image_id is not None
+    assert window.review_state_text() == "Review state: unreviewed"
+    assert (
+        window.review_progress_text()
+        == "Review progress: 0/1 reviewed, 1 unreviewed"
+    )
+
+    window.draw_annotation_box(
+        class_name="xsection_metal",
+        x_min=0,
+        y_min=0,
+        x_max=2,
+        y_max=2,
+    )
+
+    assert window.review_state_text() == "Review state: labeled"
+    assert (
+        window.review_progress_text()
+        == "Review progress: 1/1 reviewed, 0 unreviewed"
+    )
+
+    window.undo_last_annotation()
+
+    assert window.review_state_text() == "Review state: unreviewed"
+    assert (
+        window.review_progress_text()
+        == "Review progress: 0/1 reviewed, 1 unreviewed"
+    )
+
+    window.mark_selected_image_reviewed_empty()
+
+    assert window.review_state_text() == "Review state: reviewed_empty"
+    assert (
+        window.review_progress_text()
+        == "Review progress: 1/1 reviewed, 0 unreviewed"
+    )
+
+    reopened = MainWindow()
+    reopened.open_project_at(tmp_path / "project")
+    reopened.select_image(image_id)
+
+    assert reopened.review_state_text() == "Review state: reviewed_empty"
+    assert (
+        reopened.review_progress_text()
+        == "Review progress: 1/1 reviewed, 0 unreviewed"
+    )
+
+
 def test_gui_mouse_drag_draws_annotation_box(tmp_path) -> None:
     app = _app()
     source = tmp_path / "source.tif"

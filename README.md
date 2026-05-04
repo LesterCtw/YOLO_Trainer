@@ -16,6 +16,8 @@ workflow for the YOLO Trainer MVS.
 - Active projects can import supported STEM ZC Images into the project queue.
 - Imported Normalized Training Images can be annotated with Metal Detection
   Boxes.
+- Imported images track explicit review state: `unreviewed`, `labeled`, or
+  `reviewed_empty`.
 - Project metadata is persisted in each project folder.
 - Smoke, documentation, project-store, image-import, annotation-store, and GUI
   workflow tests are present.
@@ -62,6 +64,8 @@ The current GUI supports the first project workflow:
 - Select an imported image for annotation.
 - Draw Metal Detection Boxes by dragging on the Normalized Training Image.
 - Autosave annotation labels and restore them after reopening the project.
+- Show each image's review state and project-level reviewed/unreviewed progress.
+- Mark an image as `reviewed_empty` when it intentionally has no target boxes.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -72,8 +76,8 @@ Imported images are stored under the project `images/` directory:
 - `images/sources/` keeps copied original source files for traceability.
 - `images/normalized/` stores 8-bit PNG Normalized Training Images.
 - `images/metadata/` stores per-image metadata, including original size,
-  normalized size, fixed percentile normalization values, and coordinate mapping
-  values.
+  normalized size, review state, fixed percentile normalization values, and
+  coordinate mapping values.
 
 TIFF import is supported directly. DM3 import is represented by the same public
 import workflow with an injectable reader so tests can use a controlled fixture;
@@ -91,6 +95,12 @@ The canonical class IDs are stable:
 
 The GUI may show readable labels, but saved label data should keep these
 canonical names and IDs stable for future dataset export.
+
+Review state is stored per imported image. New imports start as `unreviewed`.
+Adding one or more Metal Detection Boxes marks the image as `labeled`. Removing
+all boxes returns the image to `unreviewed` instead of silently treating it as a
+negative training example. The user must explicitly mark an image as
+`reviewed_empty` when it contains no target objects.
 
 ## Windows training workstation
 

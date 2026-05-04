@@ -20,7 +20,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from yolo_trainer.annotations import CANONICAL_CLASSES, AnnotationStore, PixelBox
+from yolo_trainer.annotations import (
+    CANONICAL_CLASSES,
+    AnnotationStore,
+    PixelBox,
+    ReviewStateStore,
+)
 from yolo_trainer.image_import import ImportResult, import_stem_zc_images
 from yolo_trainer.project import (
     ImportedImage,
@@ -97,6 +102,14 @@ class MainWindow(QMainWindow):
         self._annotation_status_label = QLabel("No boxes saved.")
         self._annotation_status_label.setObjectName("annotationStatusLabel")
 
+        self._review_state_label = QLabel("Review state: none")
+        self._review_state_label.setObjectName("reviewStateLabel")
+
+        self._review_progress_label = QLabel(
+            "Review progress: 0/0 reviewed, 0 unreviewed"
+        )
+        self._review_progress_label.setObjectName("reviewProgressLabel")
+
         create_button = QPushButton("Create Project")
         create_button.setObjectName("createProjectButton")
         create_button.clicked.connect(self._choose_project_to_create)
@@ -109,6 +122,10 @@ class MainWindow(QMainWindow):
         import_button.setObjectName("importImagesButton")
         import_button.clicked.connect(self._choose_images_to_import)
 
+        reviewed_empty_button = QPushButton("Mark Reviewed Empty")
+        reviewed_empty_button.setObjectName("markReviewedEmptyButton")
+        reviewed_empty_button.clicked.connect(self.mark_selected_image_reviewed_empty)
+
         layout = QVBoxLayout()
         layout.addWidget(create_button)
         layout.addWidget(open_button)
@@ -119,6 +136,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._class_selector)
         layout.addWidget(self._annotation_image_label)
         layout.addWidget(self._annotation_status_label)
+        layout.addWidget(self._review_state_label)
+        layout.addWidget(self._review_progress_label)
+        layout.addWidget(reviewed_empty_button)
         layout.addStretch()
 
         root = QWidget()
@@ -203,6 +223,15 @@ class MainWindow(QMainWindow):
         )
         self._refresh_annotation_status()
 
+    def mark_selected_image_reviewed_empty(self) -> None:
+        if self._current_project is None or self._selected_image is None:
+            return
+        AnnotationStore(self._current_project).save(self._selected_image, [])
+        ReviewStateStore(self._current_project).mark_reviewed_empty(
+            self._selected_image
+        )
+        self._refresh_annotation_status()
+
     def open_project_at(self, path: Path | str) -> None:
         try:
             self._show_project(open_project(path))
@@ -229,6 +258,12 @@ class MainWindow(QMainWindow):
 
     def annotation_status_text(self) -> str:
         return self._annotation_status_label.text()
+
+    def review_state_text(self) -> str:
+        return self._review_state_label.text()
+
+    def review_progress_text(self) -> str:
+        return self._review_progress_label.text()
 
     def annotation_canvas(self) -> AnnotationImageLabel:
         return self._annotation_image_label
@@ -271,11 +306,13 @@ class MainWindow(QMainWindow):
             self._annotation_image_label.setText(self._annotation_image_text)
             self._annotation_image_label.setPixmap(QPixmap())
             self._annotation_status_label.setText("No boxes saved.")
+            self._refresh_review_status()
 
     def _show_project_error(self, message: str) -> None:
         self._status_label.setText("No YOLO Training Project loaded.")
         self._queue_label.setText("Create or open a project to start.")
         self._error_label.setText(message)
+        self._refresh_review_status()
 
     def _show_annotation_image(self, imported_image: ImportedImage) -> None:
         self._selected_image = imported_image
@@ -306,7 +343,33 @@ class MainWindow(QMainWindow):
             self._annotation_status_label.setText("No boxes saved.")
             return
         annotations = AnnotationStore(self._current_project).load(self._selected_image)
-        self._annotation_status_label.setText(_format_annotation_status(len(annotations)))
+        self._annotation_status_label.setText(
+            _format_annotation_status(len(annotations))
+        )
+        self._refresh_review_status()
+
+    def _refresh_review_status(self) -> None:
+        if self._current_project is None:
+            self._review_state_label.setText("Review state: none")
+            self._review_progress_label.setText(
+                "Review progress: 0/0 reviewed, 0 unreviewed"
+            )
+            return
+
+        review_states = ReviewStateStore(self._current_project)
+        if self._selected_image is None:
+            self._review_state_label.setText("Review state: none")
+        else:
+            self._review_state_label.setText(
+                f"Review state: {review_states.load(self._selected_image)}"
+            )
+
+        progress = review_states.progress(self._current_project.imported_images)
+        self._review_progress_label.setText(
+            "Review progress: "
+            f"{progress.reviewed_count}/{progress.total_count} reviewed, "
+            f"{progress.unreviewed_count} unreviewed"
+        )
 
 
 def build_main_window() -> MainWindow:

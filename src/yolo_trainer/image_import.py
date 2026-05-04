@@ -105,6 +105,7 @@ def _import_one_image(
         ),
         "original_size": {"width": width, "height": height},
         "normalized_size": {"width": width, "height": height},
+        "review_state": "unreviewed",
         "normalization": {
             "method": "percentile",
             "lower_percentile": 1,
