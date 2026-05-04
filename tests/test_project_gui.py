@@ -1,6 +1,8 @@
 import os
 
+import numpy as np
 from PySide6.QtWidgets import QApplication
+import tifffile
 
 from yolo_trainer.app import MainWindow
 from yolo_trainer.project import create_project
@@ -45,3 +47,53 @@ def test_gui_rejects_invalid_project_folder_with_message(tmp_path) -> None:
 
     assert window.current_project_name() is None
     assert "not a YOLO Training Project" in window.project_error_text()
+
+
+def test_gui_imports_images_into_active_project_queue(tmp_path) -> None:
+    _app()
+    source = tmp_path / "source.tif"
+    tifffile.imwrite(source, np.arange(6, dtype=np.uint16).reshape(2, 3))
+    window = MainWindow()
+    window.create_project_at(tmp_path / "project", name="Image Project")
+
+    window.import_images([source])
+
+    assert window.project_error_text() == ""
+    assert window.image_queue_text() == "1 image imported: source.tif"
+
+    reopened = MainWindow()
+    reopened.open_project_at(tmp_path / "project")
+
+    assert reopened.image_queue_text() == "1 image imported: source.tif"
+
+
+def test_gui_surfaces_failed_import_without_clearing_existing_queue(tmp_path) -> None:
+    _app()
+    source = tmp_path / "source.tif"
+    tifffile.imwrite(source, np.arange(6, dtype=np.uint16).reshape(2, 3))
+    unsupported = tmp_path / "notes.txt"
+    unsupported.write_text("not an image", encoding="utf-8")
+    window = MainWindow()
+    window.create_project_at(tmp_path / "project", name="Image Project")
+    window.import_images([source])
+
+    window.import_images([unsupported])
+
+    assert window.image_queue_text() == "1 image imported: source.tif"
+    assert "notes.txt" in window.project_error_text()
+    assert "Unsupported STEM ZC Image format" in window.project_error_text()
+
+
+def test_gui_imports_dm3_with_controlled_reader(tmp_path) -> None:
+    _app()
+    source = tmp_path / "source.dm3"
+    source.write_bytes(b"controlled dm3 fixture")
+    window = MainWindow(
+        dm3_reader=lambda path: np.arange(6, dtype=np.uint16).reshape(2, 3),
+    )
+    window.create_project_at(tmp_path / "project", name="DM3 Project")
+
+    window.import_images([source])
+
+    assert window.project_error_text() == ""
+    assert window.image_queue_text() == "1 image imported: source.dm3"

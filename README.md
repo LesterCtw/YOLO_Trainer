@@ -12,12 +12,14 @@ workflow for the YOLO Trainer MVS.
 - Triage labels use the default vocabulary.
 - Domain documentation is configured as single-context.
 - Python project metadata is managed by `uv`.
-- A PySide6 desktop app can create and open empty YOLO Training Projects.
+- A PySide6 desktop app can create and open YOLO Training Projects.
+- Active projects can import supported STEM ZC Images into the project queue.
 - Project metadata is persisted in each project folder.
-- Smoke, documentation, project-store, and GUI project workflow tests are present.
+- Smoke, documentation, project-store, image-import, and GUI workflow tests are
+  present.
 
-The app does not yet support image import, annotation, dataset export, YOLO
-training, or prediction preview.
+The app does not yet support annotation, dataset export, YOLO training, or
+prediction preview.
 
 ## MVS direction
 
@@ -48,16 +50,29 @@ checks where opening the full GUI is not needed.
 
 ## YOLO Training Project workflow
 
-The current GUI supports the first empty-project workflow:
+The current GUI supports the first project workflow:
 
 - Create a YOLO Training Project folder.
 - Open an existing YOLO Training Project folder.
 - Save and load project metadata across app restarts.
-- Show project status and an empty image queue after create/open.
+- Import supported STEM ZC Images into the active project.
+- Show project status and the imported image queue after create/open/import.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
 the current marker used to recognize a valid YOLO Training Project.
+
+Imported images are stored under the project `images/` directory:
+
+- `images/sources/` keeps copied original source files for traceability.
+- `images/normalized/` stores 8-bit PNG Normalized Training Images.
+- `images/metadata/` stores per-image metadata, including original size,
+  normalized size, fixed percentile normalization values, and coordinate mapping
+  values.
+
+TIFF import is supported directly. DM3 import is represented by the same public
+import workflow with an injectable reader so tests can use a controlled fixture;
+hardening a full production DM3 parser is a later step.
 
 ## Windows training workstation
 

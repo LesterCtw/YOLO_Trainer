@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from typing import Callable
+
+import numpy as np
 
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
@@ -15,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from yolo_trainer.image_import import ImportResult, import_stem_zc_images
 from yolo_trainer.project import (
     InvalidProjectError,
     YOLOTrainingProject,
@@ -28,9 +32,14 @@ MINIMUM_WINDOW_SIZE = QSize(960, 640)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        dm3_reader: Callable[[Path], np.ndarray] | None = None,
+    ) -> None:
         super().__init__()
         self._current_project: YOLOTrainingProject | None = None
+        self._dm3_reader = dm3_reader
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(MINIMUM_WINDOW_SIZE)
@@ -52,9 +61,14 @@ class MainWindow(QMainWindow):
         open_button.setObjectName("openProjectButton")
         open_button.clicked.connect(self._choose_project_to_open)
 
+        import_button = QPushButton("Import Images")
+        import_button.setObjectName("importImagesButton")
+        import_button.clicked.connect(self._choose_images_to_import)
+
         layout = QVBoxLayout()
         layout.addWidget(create_button)
         layout.addWidget(open_button)
+        layout.addWidget(import_button)
         layout.addWidget(self._status_label)
         layout.addWidget(self._queue_label)
         layout.addWidget(self._error_label)
@@ -70,6 +84,21 @@ class MainWindow(QMainWindow):
             self._show_project(create_project(path, name=name))
         except OSError as error:
             self._show_project_error(f"Could not create YOLO Training Project: {error}")
+
+    def import_images(self, paths: list[Path] | tuple[Path, ...]) -> ImportResult | None:
+        if self._current_project is None:
+            self._show_project_error("Open a YOLO Training Project before importing images.")
+            return None
+
+        result = import_stem_zc_images(
+            self._current_project,
+            paths,
+            dm3_reader=self._dm3_reader,
+        )
+        self._show_project(open_project(self._current_project.path))
+        if result.failed:
+            self._error_label.setText(_format_import_failures(result))
+        return result
 
     def open_project_at(self, path: Path | str) -> None:
         try:
@@ -108,10 +137,19 @@ class MainWindow(QMainWindow):
         if path:
             self.open_project_at(path)
 
+    def _choose_images_to_import(self) -> None:
+        paths, _selected_filter = QFileDialog.getOpenFileNames(
+            self,
+            "Import STEM ZC Images",
+            filter="STEM ZC Images (*.tif *.tiff *.dm3)",
+        )
+        if paths:
+            self.import_images([Path(path) for path in paths])
+
     def _show_project(self, project: YOLOTrainingProject) -> None:
         self._current_project = project
         self._status_label.setText(f"Project loaded: {project.name}")
-        self._queue_label.setText("Image queue is empty.")
+        self._queue_label.setText(_format_image_queue(project))
         self._error_label.setText("")
 
     def _show_project_error(self, message: str) -> None:
@@ -122,6 +160,22 @@ class MainWindow(QMainWindow):
 
 def build_main_window() -> MainWindow:
     return MainWindow()
+
+
+def _format_image_queue(project: YOLOTrainingProject) -> str:
+    if not project.imported_images:
+        return "Image queue is empty."
+
+    names = ", ".join(image.display_name for image in project.imported_images)
+    if project.image_count == 1:
+        return f"1 image imported: {names}"
+    return f"{project.image_count} images imported: {names}"
+
+
+def _format_import_failures(result: ImportResult) -> str:
+    return "; ".join(
+        f"{failure.source_path.name}: {failure.message}" for failure in result.failed
+    )
 
 
 def run(argv: list[str] | None = None) -> int:

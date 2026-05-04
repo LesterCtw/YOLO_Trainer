@@ -16,10 +16,20 @@ class InvalidProjectError(ValueError):
 
 
 @dataclass(frozen=True)
+class ImportedImage:
+    image_id: str
+    display_name: str
+    source_path: Path
+    normalized_image_path: Path
+    metadata_path: Path
+
+
+@dataclass(frozen=True)
 class YOLOTrainingProject:
     path: Path
     name: str
     image_count: int = 0
+    imported_images: tuple[ImportedImage, ...] = ()
 
 
 def create_project(path: Path | str, name: str | None = None) -> YOLOTrainingProject:
@@ -43,10 +53,13 @@ def create_project(path: Path | str, name: str | None = None) -> YOLOTrainingPro
 def open_project(path: Path | str) -> YOLOTrainingProject:
     project_path = Path(path)
     metadata = _read_metadata(project_path)
+    imported_images = _read_imported_images(project_path)
 
     return YOLOTrainingProject(
         path=project_path,
         name=str(metadata["name"]),
+        image_count=len(imported_images),
+        imported_images=tuple(imported_images),
     )
 
 
@@ -75,3 +88,24 @@ def _read_metadata(project_path: Path) -> dict[str, Any]:
     if not metadata.get("name"):
         raise InvalidProjectError("YOLO Training Project metadata is missing a name.")
     return metadata
+
+
+def _read_imported_images(project_path: Path) -> list[ImportedImage]:
+    metadata_dir = project_path / "images" / "metadata"
+    if not metadata_dir.exists():
+        return []
+
+    imported_images: list[ImportedImage] = []
+    for metadata_path in sorted(metadata_dir.glob("*.json")):
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        imported_images.append(
+            ImportedImage(
+                image_id=str(metadata["image_id"]),
+                display_name=str(metadata["display_name"]),
+                source_path=project_path / str(metadata["source_project_path"]),
+                normalized_image_path=project_path
+                / str(metadata["normalized_project_path"]),
+                metadata_path=metadata_path,
+            )
+        )
+    return imported_images
