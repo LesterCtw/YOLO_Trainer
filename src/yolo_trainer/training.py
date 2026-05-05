@@ -55,11 +55,13 @@ class TrainingRunRecord:
     output_name: str
     status: str
     dataset_yaml_path: str
+    run_output_path: str
     pretrained_model_path: str
     epochs: int
     imgsz: int
     batch: str
     device: str
+    log_tail: str = ""
 
 
 class TrainingRunStore:
@@ -77,11 +79,13 @@ class TrainingRunStore:
             output_name=settings.output_name,
             status=TRAINING_STATUS_RUNNING,
             dataset_yaml_path=str(dataset_yaml_path),
+            run_output_path=str(run_output_path(self._path.parent.parent, settings)),
             pretrained_model_path=settings.pretrained_model_path,
             epochs=settings.epochs,
             imgsz=settings.imgsz,
             batch=settings.batch,
             device=settings.device,
+            log_tail="",
         )
         records = self.list()
         records.append(record)
@@ -92,11 +96,18 @@ class TrainingRunStore:
         if not self._path.exists():
             return []
         data = json.loads(self._path.read_text(encoding="utf-8"))
-        return [TrainingRunRecord(**item) for item in data]
+        return [TrainingRunRecord(**_with_record_defaults(item)) for item in data]
 
     def mark_status(self, run_id: str, status: str) -> None:
         records = [
             record if record.run_id != run_id else _replace_status(record, status)
+            for record in self.list()
+        ]
+        self._write(records)
+
+    def update_log_tail(self, run_id: str, log_tail: str) -> None:
+        records = [
+            record if record.run_id != run_id else _replace_log_tail(record, log_tail)
             for record in self.list()
         ]
         self._write(records)
@@ -150,12 +161,52 @@ def build_training_command(
     ]
 
 
+def run_output_path(project_path: Path, settings: TrainingSettings) -> Path:
+    return project_path / "training" / "runs" / settings.output_name
+
+
 def format_training_run_history(records: list[TrainingRunRecord]) -> str:
     if not records:
         return "Training runs: none"
     return "Training runs: " + ", ".join(
         f"{record.output_name}: {record.status}" for record in records
     )
+
+
+def format_training_run_summary(records: list[TrainingRunRecord]) -> str:
+    if not records:
+        return "Training run summary: none"
+
+    record = records[-1]
+    lines = [f"Run {record.output_name}: {record.status}"]
+    lines.append(f"Dataset: {record.dataset_yaml_path}")
+
+    if record.status == TRAINING_STATUS_COMPLETED:
+        output_path = Path(record.run_output_path)
+        best_model_path = output_path / "weights" / "best.pt"
+        if best_model_path.exists():
+            lines.append(f"Official best.pt: {best_model_path}")
+        else:
+            lines.append("Official best.pt: not found")
+        metrics = _find_metrics(output_path)
+        if metrics:
+            lines.append("Metrics: " + ", ".join(str(path) for path in metrics))
+        plots = _find_plots(output_path)
+        if plots:
+            lines.append("Plots: " + ", ".join(str(path) for path in plots))
+    elif record.status == TRAINING_STATUS_FAILED and record.log_tail:
+        lines.append("Log context:")
+        lines.append(record.log_tail)
+
+    return "\n".join(lines)
+
+
+def _find_metrics(output_path: Path) -> list[Path]:
+    return [path for path in sorted(output_path.glob("*.csv")) if path.is_file()]
+
+
+def _find_plots(output_path: Path) -> list[Path]:
+    return [path for path in sorted(output_path.glob("*.png")) if path.is_file()]
 
 
 def _new_run_id() -> str:
@@ -168,9 +219,35 @@ def _replace_status(record: TrainingRunRecord, status: str) -> TrainingRunRecord
         output_name=record.output_name,
         status=status,
         dataset_yaml_path=record.dataset_yaml_path,
+        run_output_path=record.run_output_path,
         pretrained_model_path=record.pretrained_model_path,
         epochs=record.epochs,
         imgsz=record.imgsz,
         batch=record.batch,
         device=record.device,
+        log_tail=record.log_tail,
     )
+
+
+def _replace_log_tail(record: TrainingRunRecord, log_tail: str) -> TrainingRunRecord:
+    return TrainingRunRecord(
+        run_id=record.run_id,
+        output_name=record.output_name,
+        status=record.status,
+        dataset_yaml_path=record.dataset_yaml_path,
+        run_output_path=record.run_output_path,
+        pretrained_model_path=record.pretrained_model_path,
+        epochs=record.epochs,
+        imgsz=record.imgsz,
+        batch=record.batch,
+        device=record.device,
+        log_tail=log_tail,
+    )
+
+
+def _with_record_defaults(item: dict) -> dict:
+    data = dict(item)
+    data.setdefault("log_tail", "")
+    if "run_output_path" not in data:
+        data["run_output_path"] = ""
+    return data

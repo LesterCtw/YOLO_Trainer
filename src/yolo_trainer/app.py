@@ -48,6 +48,7 @@ from yolo_trainer.training import (
     TrainingSettings,
     build_training_command,
     format_training_run_history,
+    format_training_run_summary,
     format_training_settings,
 )
 
@@ -172,6 +173,9 @@ class MainWindow(QMainWindow):
         self._training_run_history_label = QLabel("Training runs: none")
         self._training_run_history_label.setObjectName("trainingRunHistoryLabel")
 
+        self._training_run_summary_label = QLabel("Training run summary: none")
+        self._training_run_summary_label.setObjectName("trainingRunSummaryLabel")
+
         self._training_log = QPlainTextEdit()
         self._training_log.setObjectName("trainingLog")
         self._training_log.setReadOnly(True)
@@ -241,6 +245,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(cancel_training_button)
         layout.addWidget(self._training_status_label)
         layout.addWidget(self._training_run_history_label)
+        layout.addWidget(self._training_run_summary_label)
         layout.addWidget(self._training_log)
         layout.addStretch()
 
@@ -404,6 +409,9 @@ class MainWindow(QMainWindow):
     def training_run_history_text(self) -> str:
         return self._training_run_history_label.text()
 
+    def training_run_summary_text(self) -> str:
+        return self._training_run_summary_label.text()
+
     def start_training(self) -> None:
         if self._current_project is None:
             self._show_project_error("Open a YOLO Training Project before training.")
@@ -449,6 +457,10 @@ class MainWindow(QMainWindow):
             return
         self._training_process.cancel()
         if self._active_training_run_id is not None:
+            TrainingRunStore(self._current_project.path).update_log_tail(
+                self._active_training_run_id,
+                self._training_log_tail(),
+            )
             TrainingRunStore(self._current_project.path).mark_status(
                 self._active_training_run_id,
                 TRAINING_STATUS_CANCELED,
@@ -570,7 +582,12 @@ class MainWindow(QMainWindow):
                 f"Training: failed {self._training_settings.output_name}"
             )
         if self._current_project is not None:
-            TrainingRunStore(self._current_project.path).mark_status(
+            run_store = TrainingRunStore(self._current_project.path)
+            run_store.update_log_tail(
+                self._active_training_run_id,
+                self._training_log_tail(),
+            )
+            run_store.mark_status(
                 self._active_training_run_id,
                 status,
             )
@@ -580,7 +597,12 @@ class MainWindow(QMainWindow):
 
     def _fail_training_start(self, message: str) -> None:
         if self._current_project is not None and self._active_training_run_id:
-            TrainingRunStore(self._current_project.path).mark_status(
+            run_store = TrainingRunStore(self._current_project.path)
+            run_store.update_log_tail(
+                self._active_training_run_id,
+                self._training_log_tail(),
+            )
+            run_store.mark_status(
                 self._active_training_run_id,
                 TRAINING_STATUS_FAILED,
             )
@@ -677,9 +699,15 @@ class MainWindow(QMainWindow):
     def _refresh_training_run_history(self) -> None:
         if self._current_project is None:
             self._training_run_history_label.setText("Training runs: none")
+            self._training_run_summary_label.setText("Training run summary: none")
             return
         records = TrainingRunStore(self._current_project.path).list()
         self._training_run_history_label.setText(format_training_run_history(records))
+        self._training_run_summary_label.setText(format_training_run_summary(records))
+
+    def _training_log_tail(self) -> str:
+        lines = self._training_log.toPlainText().splitlines()
+        return "\n".join(lines[-20:])
 
 
 class QtTrainingProcess:

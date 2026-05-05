@@ -22,12 +22,15 @@ workflow for the YOLO Trainer MVS.
   dataset.
 - The GUI can launch the first YOLO fine-tuning workflow from an exported
   dataset, stream logs, show completion/failure status, and cancel a run.
-- Training run status is retained in the YOLO Training Project folder.
+- Training run status and the first run summary are retained in the YOLO
+  Training Project folder.
+- Completed run summaries identify official `best.pt`, metrics/plots, and the
+  fixed dataset used for training.
 - Project metadata is persisted in each project folder.
 - Smoke, documentation, project-store, image-import, annotation-store,
   dataset-export, training, and GUI workflow tests are present.
 
-The app does not yet support prediction preview or polished training summaries.
+The app does not yet support prediction preview or polished metrics dashboards.
 
 ## MVS direction
 
@@ -76,6 +79,8 @@ The current GUI supports the first project workflow:
 - Watch streamed training logs while the GUI remains responsive.
 - Cancel a running training process and keep the canceled run in project
   history.
+- Inspect the latest training run summary, including successful outputs,
+  failed-run log context, or canceled status.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -142,8 +147,18 @@ The GUI launches training in a background process so the window can keep
 responding while logs stream into the training log view. Completed, failed, and
 canceled run status is written under the project `training/` folder.
 
-This workflow focuses on process orchestration and training controls. Prediction
-preview, polished run summaries, and metrics dashboards are later slices.
+The first run summary shows the latest run's status and the `dataset.yaml` used
+for training. Completed runs identify official outputs from the Ultralytics run
+folder, including `weights/best.pt`, metrics files such as `results.csv`, and
+plot images such as `results.png` or `confusion_matrix.png`. Failed runs retain
+recent log context for diagnosis. Canceled runs remain visible as canceled, but
+partial weights are not presented as official model outputs.
+
+The GUI displays metrics artifacts for inspection only. It does not
+automatically assign pass/fail model quality.
+
+Prediction preview, polished metrics dashboards, and model comparison workflows
+are later slices.
 
 ## Windows training workstation
 
