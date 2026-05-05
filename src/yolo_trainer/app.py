@@ -8,7 +8,7 @@ from typing import Callable
 import numpy as np
 
 from PySide6.QtCore import QPoint, QProcess, QSize, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -37,6 +37,12 @@ from yolo_trainer.project import (
     YOLOTrainingProject,
     create_project,
     open_project,
+)
+from yolo_trainer.prediction import (
+    PredictionBox,
+    PredictionRunner,
+    UltralyticsPredictionRunner,
+    predict_project_image,
 )
 from yolo_trainer.training import (
     TRAINING_STATUS_CANCELED,
@@ -88,6 +94,7 @@ class MainWindow(QMainWindow):
         *,
         dm3_reader: Callable[[Path], np.ndarray] | None = None,
         training_process_factory: TrainingProcessFactory | None = None,
+        prediction_runner: PredictionRunner | None = None,
     ) -> None:
         super().__init__()
         self._current_project: YOLOTrainingProject | None = None
@@ -101,6 +108,8 @@ class MainWindow(QMainWindow):
         )
         self._training_process = None
         self._active_training_run_id: str | None = None
+        self._prediction_runner = prediction_runner or UltralyticsPredictionRunner()
+        self._prediction_weights_path: Path | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(MINIMUM_WINDOW_SIZE)
@@ -180,6 +189,15 @@ class MainWindow(QMainWindow):
         self._training_log.setObjectName("trainingLog")
         self._training_log.setReadOnly(True)
 
+        self._prediction_weights_input = QLineEdit("")
+        self._prediction_weights_input.setObjectName("predictionWeightsInput")
+
+        self._prediction_status_label = QLabel("Prediction: not run.")
+        self._prediction_status_label.setObjectName("predictionStatusLabel")
+
+        self._prediction_preview_label = QLabel("Prediction preview: none")
+        self._prediction_preview_label.setObjectName("predictionPreviewLabel")
+
         create_button = QPushButton("Create Project")
         create_button.setObjectName("createProjectButton")
         create_button.clicked.connect(self._choose_project_to_create)
@@ -203,6 +221,18 @@ class MainWindow(QMainWindow):
         choose_model_button = QPushButton("Choose Model")
         choose_model_button.setObjectName("chooseModelButton")
         choose_model_button.clicked.connect(self._choose_pretrained_model)
+
+        choose_prediction_weights_button = QPushButton("Choose Prediction Weights")
+        choose_prediction_weights_button.setObjectName("choosePredictionWeightsButton")
+        choose_prediction_weights_button.clicked.connect(self._choose_prediction_weights)
+
+        use_latest_best_button = QPushButton("Use Latest best.pt")
+        use_latest_best_button.setObjectName("useLatestBestPredictionWeightsButton")
+        use_latest_best_button.clicked.connect(self.select_latest_successful_run_weights)
+
+        run_prediction_button = QPushButton("Run Prediction")
+        run_prediction_button.setObjectName("runPredictionButton")
+        run_prediction_button.clicked.connect(self.run_prediction_preview)
 
         start_training_button = QPushButton("Start Training")
         start_training_button.setObjectName("startTrainingButton")
@@ -247,6 +277,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._training_run_history_label)
         layout.addWidget(self._training_run_summary_label)
         layout.addWidget(self._training_log)
+        layout.addWidget(QLabel("Prediction weights"))
+        layout.addWidget(self._prediction_weights_input)
+        layout.addWidget(choose_prediction_weights_button)
+        layout.addWidget(use_latest_best_button)
+        layout.addWidget(run_prediction_button)
+        layout.addWidget(self._prediction_status_label)
+        layout.addWidget(self._prediction_preview_label)
         layout.addStretch()
 
         root = QWidget()
@@ -263,6 +300,9 @@ class MainWindow(QMainWindow):
         self._device_input.textChanged.connect(self._sync_training_settings_from_controls)
         self._output_name_input.textChanged.connect(
             self._sync_training_settings_from_controls
+        )
+        self._prediction_weights_input.textChanged.connect(
+            self._sync_prediction_weights_from_control
         )
 
     def create_project_at(self, path: Path | str, name: str | None = None) -> None:
@@ -412,6 +452,80 @@ class MainWindow(QMainWindow):
     def training_run_summary_text(self) -> str:
         return self._training_run_summary_label.text()
 
+    def prediction_status_text(self) -> str:
+        return self._prediction_status_label.text()
+
+    def prediction_preview_text(self) -> str:
+        return self._prediction_preview_label.text()
+
+    def select_prediction_weights(self, path: Path | str) -> None:
+        weights_path = Path(path)
+        if weights_path.suffix.lower() != ".pt":
+            self._prediction_weights_path = None
+            self._prediction_weights_input.setText("")
+            self._prediction_status_label.setText(
+                "Prediction: select an Ultralytics-compatible .pt file."
+            )
+            return
+        self._prediction_weights_input.setText(str(weights_path))
+        self._sync_prediction_weights_from_control()
+
+    def select_latest_successful_run_weights(self) -> None:
+        if self._current_project is None:
+            self._prediction_status_label.setText(
+                "Prediction: open a YOLO Training Project first."
+            )
+            return
+
+        for record in reversed(TrainingRunStore(self._current_project.path).list()):
+            if record.status != TRAINING_STATUS_COMPLETED:
+                continue
+            best_model_path = Path(record.run_output_path) / "weights" / "best.pt"
+            if best_model_path.exists():
+                self.select_prediction_weights(best_model_path)
+                return
+
+        self._prediction_status_label.setText(
+            "Prediction: no completed run with best.pt found."
+        )
+
+    def run_prediction_preview(self) -> None:
+        if self._current_project is None:
+            self._prediction_status_label.setText(
+                "Prediction: open a YOLO Training Project first."
+            )
+            return
+        if self._selected_image is None:
+            self._prediction_status_label.setText(
+                "Prediction: select a project image first."
+            )
+            return
+        if self._prediction_weights_path is None:
+            self._prediction_status_label.setText(
+                "Prediction: select weights before preview."
+            )
+            return
+        if not self._prediction_weights_path.exists():
+            self._prediction_status_label.setText("Prediction: weights file missing.")
+            return
+
+        try:
+            result = predict_project_image(
+                self._selected_image,
+                weights_path=self._prediction_weights_path,
+                prediction_runner=self._prediction_runner,
+            )
+        except (OSError, RuntimeError, ValueError, IndexError) as error:
+            self._prediction_status_label.setText(f"Prediction: failed: {error}")
+            return
+
+        self._prediction_status_label.setText(
+            f"Prediction: {len(result.boxes)} {_box_word(len(result.boxes))} "
+            f"on {self._selected_image.display_name}"
+        )
+        self._prediction_preview_label.setText(_format_prediction_preview(result.boxes))
+        self._show_prediction_image(self._selected_image, result.boxes)
+
     def start_training(self) -> None:
         if self._current_project is None:
             self._show_project_error("Open a YOLO Training Project before training.")
@@ -521,6 +635,15 @@ class MainWindow(QMainWindow):
         if path:
             self.select_pretrained_model(path)
 
+    def _choose_prediction_weights(self) -> None:
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Choose Prediction Weights",
+            filter="Ultralytics weights (*.pt)",
+        )
+        if path:
+            self.select_prediction_weights(path)
+
     def _choose_project_to_create(self) -> None:
         path = QFileDialog.getExistingDirectory(
             self,
@@ -561,6 +684,10 @@ class MainWindow(QMainWindow):
             output_name=self._output_name_input.text(),
         )
         self._refresh_training_settings()
+
+    def _sync_prediction_weights_from_control(self) -> None:
+        text = self._prediction_weights_input.text()
+        self._prediction_weights_path = Path(text) if text else None
 
     def _append_training_log(self, text: str) -> None:
         cursor = self._training_log.textCursor()
@@ -646,7 +773,37 @@ class MainWindow(QMainWindow):
         self._annotation_image_label.setPixmap(
             QPixmap(str(imported_image.normalized_image_path))
         )
+        self._prediction_preview_label.setText("Prediction preview: none")
         self._refresh_annotation_status()
+
+    def _show_prediction_image(
+        self,
+        imported_image: ImportedImage,
+        boxes: list[PredictionBox],
+    ) -> None:
+        pixmap = QPixmap(str(imported_image.normalized_image_path))
+        if pixmap.isNull():
+            return
+
+        painter = QPainter(pixmap)
+        pen = QPen(QColor("#00A878"))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        for box in boxes:
+            pixel_box = box.normalized_box
+            painter.drawRect(
+                pixel_box.x_min,
+                pixel_box.y_min,
+                pixel_box.x_max - pixel_box.x_min,
+                pixel_box.y_max - pixel_box.y_min,
+            )
+            painter.drawText(
+                pixel_box.x_min,
+                max(0, pixel_box.y_min - 2),
+                f"{box.class_name} {box.confidence:.1%}",
+            )
+        painter.end()
+        self._annotation_image_label.setPixmap(pixmap)
 
     def _draw_selected_class_box(
         self,
@@ -783,6 +940,30 @@ def _format_annotation_status(count: int) -> str:
     if count == 1:
         return "1 box saved."
     return f"{count} boxes saved."
+
+
+def _format_prediction_preview(boxes: list[PredictionBox]) -> str:
+    if not boxes:
+        return "Prediction preview: no boxes"
+    return "\n".join(_format_prediction_box(box) for box in boxes)
+
+
+def _format_prediction_box(box: PredictionBox) -> str:
+    normalized = box.normalized_box
+    original = box.original_box
+    return (
+        f"{box.class_name} {box.confidence:.1%} "
+        f"normalized=({normalized.x_min},{normalized.y_min})-"
+        f"({normalized.x_max},{normalized.y_max}) "
+        f"original=({original.x_min},{original.y_min})-"
+        f"({original.x_max},{original.y_max})"
+    )
+
+
+def _box_word(count: int) -> str:
+    if count == 1:
+        return "box"
+    return "boxes"
 
 
 def _format_dataset_export_result(result: DatasetExportResult) -> str:

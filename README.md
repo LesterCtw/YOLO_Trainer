@@ -26,11 +26,17 @@ workflow for the YOLO Trainer MVS.
   Training Project folder.
 - Completed run summaries identify official `best.pt`, metrics/plots, and the
   fixed dataset used for training.
+- The GUI can preview predictions on imported project images using a selected
+  YOLO `.pt` weight file or the latest successful run's official `best.pt`.
+- Prediction preview draws rough Metal Detection Boxes with class/confidence,
+  keeps manual annotations unchanged, and maps boxes back to original source
+  image coordinates through persisted metadata.
 - Project metadata is persisted in each project folder.
 - Smoke, documentation, project-store, image-import, annotation-store,
-  dataset-export, training, and GUI workflow tests are present.
+  dataset-export, training, prediction, and GUI workflow tests are present.
 
-The app does not yet support prediction preview or polished metrics dashboards.
+The app does not yet support polished metrics dashboards or model comparison
+workflows.
 
 ## MVS direction
 
@@ -81,6 +87,12 @@ The current GUI supports the first project workflow:
   history.
 - Inspect the latest training run summary, including successful outputs,
   failed-run log context, or canceled status.
+- Select prediction weights from a compatible `.pt` path or the latest
+  successful run's official `best.pt`.
+- Run prediction preview on imported project images using their Normalized
+  Training Images.
+- See predicted Metal Detection Boxes with class/confidence over the image
+  preview without overwriting manual annotations or review state.
 - Reject unsupported folders with a clear message in the project view.
 
 Each project folder stores a `yolo-trainer-project.json` metadata file. This is
@@ -157,8 +169,28 @@ partial weights are not presented as official model outputs.
 The GUI displays metrics artifacts for inspection only. It does not
 automatically assign pass/fail model quality.
 
-Prediction preview, polished metrics dashboards, and model comparison workflows
-are later slices.
+## Prediction preview workflow
+
+Prediction preview runs only on images already imported into the active YOLO
+Training Project. It uses the same 8-bit Normalized Training Image files used
+for dataset export and training, not arbitrary external folders or original
+source files directly.
+
+The user can choose a compatible `.pt` weight file or ask the GUI to use the
+latest completed training run's official `weights/best.pt`. The preview draws
+rough Metal Detection Boxes over the project image preview with class and
+confidence. These prediction boxes are temporary preview results: they do not
+overwrite, append to, or delete manual annotation label files, and they do not
+change image review state.
+
+Each predicted box is also mapped from normalized image coordinates back to
+original source image coordinates using the imported image metadata. Missing
+weights, incompatible weights, missing project state, and prediction failures
+are surfaced as GUI status messages.
+
+External folder prediction, direct Measurer integration, prediction JSON
+contracts, segmentation, refined boundaries, final dimension measurements,
+polished metrics dashboards, and model comparison workflows are later slices.
 
 ## Windows training workstation
 
